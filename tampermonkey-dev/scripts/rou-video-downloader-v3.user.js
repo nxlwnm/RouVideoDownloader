@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rou.video 视频下载助手 (v3)
 // @namespace    http://tampermonkey.net/
-// @version      3.7
+// @version      3.8
 // @description  下载 rou.video 视频（破解伪装 HLS/JPEG 流 + 高清诊断日志）
 // @author       You
 // @match        https://rou.video/*
@@ -857,9 +857,10 @@
             const data = getNextData();
             if (data?.props?.pageProps?.video?.title) {
                 let title = data.props.pageProps.video.title;
-                // 去掉网站标题后缀
-                if (title.includes(' - ')) {
-                    title = title.split(' - ')[0];
+                // 去掉网站标题后缀：找最后一个 " - " 之前的内容
+                const lastSplit = title.lastIndexOf(' - ');
+                if (lastSplit !== -1) {
+                    title = title.substring(0, lastSplit);
                 }
                 return title.replace(/[/<>:"|?*]/g, '_').trim();
             }
@@ -868,8 +869,10 @@
         // 备选：从 <title> 提取
         try {
             let title = document.title;
-            if (title.includes(' - ')) {
-                title = title.split(' - ')[0];
+            // 同样找最后一个 " - " 之前的内容
+            const lastSplit = title.lastIndexOf(' - ');
+            if (lastSplit !== -1) {
+                title = title.substring(0, lastSplit);
             }
             return title.replace(/[/<>:"|?*]/g, '_').trim();
         } catch (e) { /* 静默 */ }
