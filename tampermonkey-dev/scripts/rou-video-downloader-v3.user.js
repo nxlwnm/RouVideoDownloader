@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Rou.video 视频下载助手 (v3)
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @description  下载 rou.video 视频（破解伪装 HLS/JPEG 流 + 高清诊断日志）
 // @author       You
 // @match        https://rou.video/*
@@ -654,51 +654,142 @@
     }
 
     // ================================================================
-    // UI
+    // UI - 可拖动 + 移动端适配
     // ================================================================
+    function isMobile() {
+        return window.innerWidth < 768 || 'ontouchstart' in window;
+    }
+
     function createUI() {
         if (UI_CTNR) return;
         log('[UI] 创建下载面板...');
 
+        const mobile = isMobile();
+        const panelW = mobile ? 'min(96vw, 360px)' : '340px';
+        const topPos = mobile ? '10px' : '80px';
+
         UI_CTNR = document.createElement('div');
         UI_CTNR.id = 'rou-dl3';
         Object.assign(UI_CTNR.style, {
-            position:'fixed', top:'80px', right:'20px', zIndex:'99999',
-            background:'rgba(0,0,0,0.92)', color:'#fff', padding:'16px',
-            borderRadius:'10px', minWidth:'320px', maxWidth:'420px',
-            fontFamily:'Segoe UI, Arial, sans-serif', fontSize:'13px',
+            position:'fixed', top:topPos, right: mobile ? '2vw' : '20px', zIndex:'99999',
+            background:'rgba(0,0,0,0.92)', color:'#fff', padding:'0',
+            borderRadius:'10px', width: panelW,
+            fontFamily:'Segoe UI, Arial, sans-serif',
             boxShadow:'0 0 20px rgba(255,107,107,0.4)',
-            border:'2px solid #ff6b6b', maxHeight:'75vh', overflowY:'auto',
+            border:'2px solid #ff6b6b', maxHeight:'75vh', overflow:'hidden',
+            userSelect:'none', WebkitUserSelect:'none',
         });
 
-        const h = document.createElement('div');
-        h.innerHTML = '🔽 Rou.video 下载 v3.1';
-        Object.assign(h.style, { fontWeight:'700', fontSize:'16px', color:'#ff6b6b', marginBottom:'10px' });
-        UI_CTNR.appendChild(h);
+        // ---- 标题栏（拖动把手） ----
+        const header = document.createElement('div');
+        Object.assign(header.style, {
+            padding:'10px 14px', cursor:'grab', background:'rgba(255,107,107,0.15)',
+            borderBottom:'1px solid rgba(255,107,107,0.3)',
+            display:'flex', justifyContent:'space-between', alignItems:'center',
+            fontSize: mobile ? '15px' : '14px', fontWeight:'700', color:'#ff6b6b',
+        });
+        header.innerHTML = '<span>🔽 Rou.video 下载</span><span style="font-size:11px;color:#888;font-weight:400">↕ 拖动</span>';
+        UI_CTNR.appendChild(header);
 
+        // ---- 状态栏 ----
         const s = document.createElement('div');
         s.id = 'rou-dl3-status';
         s.textContent = '⏳ 等待视频加载...';
-        Object.assign(s.style, { fontSize:'12px', color:'#aaa', marginBottom:'8px' });
+        Object.assign(s.style, {
+            fontSize: mobile ? '13px' : '12px', color:'#aaa',
+            padding:'8px 14px 0', marginBottom:'4px',
+        });
         UI_CTNR.appendChild(s);
 
+        // ---- 列表区（可滚动） ----
         const list = document.createElement('div');
         list.id = 'rou-dl3-list';
+        Object.assign(list.style, {
+            padding:'4px 10px 10px', maxHeight: mobile ? '50vh' : '55vh',
+            overflowY:'auto', fontSize: mobile ? '13px' : '12px',
+        });
         UI_CTNR.appendChild(list);
 
-        // 导出日志按钮
+        // ---- 导出日志按钮 ----
         const logBtn = document.createElement('button');
         logBtn.textContent = '📄 导出调试日志';
         Object.assign(logBtn.style, {
-            marginTop:'10px', width:'100%', padding:'6px', borderRadius:'4px',
+            margin:'4px 10px 10px', width:'calc(100% - 20px)',
+            padding: mobile ? '10px' : '6px', borderRadius:'4px',
             border:'1px solid #666', background:'transparent', color:'#ccc',
-            cursor:'pointer', fontSize:'11px',
+            cursor:'pointer', fontSize: mobile ? '14px' : '11px',
         });
         logBtn.onclick = exportLogs;
         UI_CTNR.appendChild(logBtn);
 
         document.body.appendChild(UI_CTNR);
-        log('[UI] 面板已添加到页面');
+
+        // ================================================================
+        // 拖动逻辑（鼠标 + 触摸）
+        // ================================================================
+        let isDragging = false;
+        let startX, startY, origLeft, origTop;
+
+        function onDragStart(px, py) {
+            isDragging = true;
+            header.style.cursor = 'grabbing';
+            const rect = UI_CTNR.getBoundingClientRect();
+            startX = px;
+            startY = py;
+            origLeft = rect.left;
+            origTop = rect.top;
+        }
+
+        function onDragMove(px, py) {
+            if (!isDragging) return;
+            const dx = px - startX;
+            const dy = py - startY;
+            UI_CTNR.style.left = origLeft + dx + 'px';
+            UI_CTNR.style.top = origTop + dy + 'px';
+            UI_CTNR.style.right = 'auto';
+        }
+
+        function onDragEnd() {
+            isDragging = false;
+            header.style.cursor = 'grab';
+        }
+
+        // 鼠标事件
+        header.addEventListener('mousedown', e => {
+            e.preventDefault();
+            onDragStart(e.clientX, e.clientY);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+        function onMouseMove(e) { onDragMove(e.clientX, e.clientY); }
+        function onMouseUp() {
+            onDragEnd();
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+
+        // 触摸事件
+        header.addEventListener('touchstart', e => {
+            const t = e.touches[0];
+            onDragStart(t.clientX, t.clientY);
+        }, { passive: true });
+        header.addEventListener('touchmove', e => {
+            const t = e.touches[0];
+            onDragMove(t.clientX, t.clientY);
+        }, { passive: true });
+        header.addEventListener('touchend', onDragEnd, { passive: true });
+
+        log('[UI] 面板已添加到页面（可拖动 + 移动端适配）');
+    }
+
+    // ---- 移动端下按钮加大 ----
+    function mobileBtnStyle(extra) {
+        const mobile = isMobile();
+        return mobile
+            ? Object.assign({ display:'block', width:'100%', marginBottom:'6px',
+                padding:'10px', fontSize:'14px', borderRadius:'4px',
+                border:'none', cursor:'pointer', textAlign:'center' }, extra)
+            : extra;
     }
 
     function updateUI() {
@@ -710,28 +801,30 @@
         st.textContent = VIDEOS.length > 0 ? `✓ ${VIDEOS.length} 个视频源` : '⏳ 等待视频加载...';
 
         li.innerHTML = VIDEOS.length === 0
-            ? '<div style="color:#aaa;font-size:12px">播放视频后自动出现...</div>'
+            ? '<div style="color:#aaa;font-size:12px;padding:8px">播放视频后自动出现...</div>'
             : VIDEOS.map((v, i) => renderEntry(v, i)).join('');
     }
 
     function renderEntry(v, i) {
+        const mobile = isMobile();
         const res = v.resolution ? `${v.resolution}p` : '?';
         const segInfo = v.segments?.length ? `📦 ${v.segments.length} 片段` : '';
         const durInfo = v.duration ? `⏱ ${v.duration.toFixed(0)}s` : '';
         const encInfo = v.hasKey ? '🔒 加密' : '✅ 无加密';
 
-        let html = `<div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.07);border-radius:6px;border:1px solid rgba(255,107,107,0.3)">`;
-        html += `<div style="font-weight:bold;color:#4ecdc4;margin-bottom:4px;font-size:12px">#${i+1} [${res}] ${segInfo} ${durInfo} ${encInfo}</div>`;
+        let html = `<div style="margin-bottom:8px;padding:${mobile ? '10px' : '8px'};background:rgba(255,255,255,0.07);border-radius:6px;border:1px solid rgba(255,107,107,0.3)">`;
+        html += `<div style="font-weight:bold;color:#4ecdc4;margin-bottom:4px;font-size:${mobile ? '14px' : '12px'}">#${i+1} [${res}] ${segInfo} ${durInfo} ${encInfo}</div>`;
 
         if (v.segments?.length) {
-            // 首尾片段预览
-            if (v.segments.length > 0) {
-                const firstSeg = v.segments[0].slice(0, 80);
-                const lastSeg = v.segments[v.segments.length - 1].slice(0, 80);
+            if (v.segments.length > 0 && !mobile) {
+                const firstSeg = v.segments[0].slice(0, 60);
+                const lastSeg = v.segments[v.segments.length - 1].slice(0, 60);
                 html += `<div style="font-size:10px;color:#666;margin-bottom:6px">首: ${firstSeg}...<br>尾: ${lastSeg}...</div>`;
             }
-            html += `<button class="rou-dl-btn" data-i="${i}" data-action="dl-m3u8" style="background:#4ecdc4;color:#000;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:5px">💾 保存 .m3u8</button>`;
-            html += `<button class="rou-dl-btn" data-i="${i}" data-action="dl-mp4" style="background:#ff6b6b;color:#fff;border:none;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px">⚡ 下载 MP4</button>`;
+            const btnFont = mobile ? '14px' : '11px';
+            const btnPad = mobile ? '10px 12px' : '5px 10px';
+            html += `<button class="rou-dl-btn" data-i="${i}" data-action="dl-m3u8" style="background:#4ecdc4;color:#000;border:none;padding:${btnPad};border-radius:4px;cursor:pointer;font-size:${btnFont};margin-right:4px;${mobile?'width:48%;display:inline-block':''}">💾 保存 .m3u8</button>`;
+            html += `<button class="rou-dl-btn" data-i="${i}" data-action="dl-mp4" style="background:#ff6b6b;color:#fff;border:none;padding:${btnPad};border-radius:4px;cursor:pointer;font-size:${btnFont};${mobile?'width:48%;display:inline-block':''}">⚡ 下载 MP4</button>`;
         }
 
         html += ` <button class="rou-dl-btn" data-i="${i}" data-action="copy-m3u8" style="background:transparent;color:#4ecdc4;border:1px solid #4ecdc4;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:11px">📋 复制 m3u8</button>`;
